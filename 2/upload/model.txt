@@ -1,0 +1,199 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: admin
+ * Date: 06/02/2018
+ * Time: 14:08
+ */
+
+namespace Model;
+
+class Model
+{
+    public static function getTable()
+    {
+        $arr = explode("\\", get_called_class());
+        return strtolower(array_pop($arr));
+    }
+
+    public static function __callStatic($name, $arguments)
+    {
+        if (substr($name, 0, 6) == "findBy") {
+            $key = strtolower(substr($name, 6));
+            return static::find([
+                $key => $arguments[0]
+            ]);
+        }
+        if (substr($name, 0, 9) == "findOneBy") {
+            $key = strtolower(substr($name, 9));
+            return static::findOne([
+                $key => $arguments[0]
+            ]);
+        }
+    }
+
+
+    public static function getPK()
+    {
+        return static::getTable() . "_id";
+    }
+
+    public static function where($data)
+    {
+        if (count($data) == 0) {
+            return "";
+        }
+        if (array_key_exists("conditions", $data)) {
+            return " WHERE " . $data["conditions"] . " ";
+        } else {
+            return " WHERE " . implode("=? AND ", array_keys($data)) . " =? ";
+        }
+    }
+
+    /**
+     * @param array $data
+     * @return static[]
+     */
+    public static function find($data = [])
+    {
+        if (is_numeric($data)) {
+            return static::findById($data);
+        }
+        $sql = "SELECT * FROM " . static::getTable() . " " . static::where($data);
+        $db = \Db::getInstance();
+        $sth = $db->getConnection()->prepare($sql);
+        $sth->execute(static::conditions($data));
+        return $sth->fetchAll(\PDO::FETCH_CLASS, get_called_class());
+    }
+
+    public static function conditions($data = [])
+    {
+        if (!count($data)) {
+            return [];
+        }
+
+        if (array_key_exists("bind", $data)) {
+            return $data['bind'];
+        }
+        $bind = [];
+        foreach ($data as $key => $val) {
+            $bind[] = $val;
+        }
+        return $bind;
+    }
+
+
+    public static function findOne($data)
+    {
+        $arr = static::find($data);
+        return $arr[0];
+    }
+
+    public static function findById($id)
+    {
+        return self::findOne([static::getPK() => $id]);
+    }
+
+
+    private function insertQueryString($data)
+    {
+        $keys = array_keys($data);
+
+        return "INSERT INTO " . static::getTable() . " (`" . implode("`,`", $keys) . "`) VALUES( :" . implode(",:", $keys) . " )";
+    }
+
+    private function updateQueryString($data)
+    {
+        $pk = static::getPK();
+        unset($data[$pk]);
+        $keys = array_keys($data);
+        $update = "UPDATE " . static::getTable() . " SET ";
+
+        foreach ($keys as $key) {
+            $update .= "`$key` = :$key ,";
+        }
+        $update = rtrim($update, ",");
+        $update .= " WHERE $pk = :$pk ";
+        return $update;
+    }
+
+    public function save()
+    {
+
+        if (!isset($this->{static::getPK()})) {
+            return $this->insert();
+        }
+
+        $currentRec = static::findById($this->{static::getPK()});
+        if ($currentRec) {
+            return $this->update();
+        } else {
+            return $this->insert();
+        }
+    }
+
+
+    private function update()
+    {
+        $data = get_object_vars($this);
+        $sql = self::updateQueryString($data);
+
+        var_dump($sql);
+        var_dump($data);
+
+        $sth = \Db::getInstance()->getConnection()->prepare($sql);
+
+
+        var_dump($sth->execute($data));
+
+        if ($sth->execute($data) === false) {
+            print_r(\Db::getInstance()->getConnection()->errorInfo());
+            var_dump("here it is");
+            die;
+            return false;
+        }
+        return true;
+    }
+
+    public function insert()
+    {
+        $data = get_object_vars($this);
+        $sql = self::insertQueryString($data);
+        $sth = \Db::getInstance()->getConnection()->prepare($sql);
+
+        var_dump($sth->execute($data));
+
+        if ($sth->execute($data) === false) {
+            print_r(\Db::getInstance()->getConnection()->errorInfo());
+
+            die;
+            return false;
+        }
+        $this->{static::getPK()} = \Db::getInstance()->getConnection()->lastInsertId();
+        return true;
+    }
+
+    public function remove()
+    {
+        return static::delete([
+            static::getPK() => $this->{static::getPK()}
+        ]);
+    }
+
+    public static function delete($data = [])
+    {
+        if (is_numeric($data)) {
+            $data = [
+                static::getPK() => $data
+            ];
+        }
+        $sql = "DELETE FROM " . static::getTable() . " " . static::where($data);
+        $db = \Db::getInstance();
+        $sth = $db->getConnection()->prepare($sql);
+        $sth->execute(static::conditions($data));
+        $count = $sth->rowCount();
+        return $count > 0;
+    }
+
+
+}
