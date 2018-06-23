@@ -19,3 +19,5 @@ for($satir = 0;$satir < 10;$satir++){
 */
 
 var_dump( FALSE || " "  );
+
+
